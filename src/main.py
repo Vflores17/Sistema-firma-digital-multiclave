@@ -1,1 +1,0 @@
-print("Sistema de Firma Digital Multillave")
