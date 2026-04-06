@@ -179,3 +179,21 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+data/contracts/CT-2026-0001/contrato.pdf
+data/contracts/CT-2026-0001/bundle.json
+data/contracts/CT-2026-0001/contrato.pdf.enc
+data/contracts/CT-2026-0001/firma_empleado.png
+data/contracts/CT-2026-1000/bundle.json
+data/contracts/CT-2026-1000/contrato.pdf
+data/contracts/CT-2026-1000/contrato.pdf.enc
+data/contracts/CT-2026-1546/bundle.json
+data/contracts/CT-2026-1546/contrato.pdf
+data/contracts/CT-2026-1546/contrato.pdf.enc
+data/contracts/CT-2026-1546/firma_empleado.png
+data/contracts/CT-2026-1546/qr.png
+keys/signing/empresa_private.pem
+keys/signing/empresa_private.pem
+keys/signing/empresa_private.pem
+keys/signing/empresa_public.pem
+keys/signing/empresa_private.pem
+keys/signing/empresa_public.pem

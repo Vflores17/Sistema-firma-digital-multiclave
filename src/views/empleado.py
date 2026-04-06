@@ -1,14 +1,39 @@
 # src/views/empleado.py
 import pathlib
-import streamlit as st
 
+import streamlit as st
+from PIL import Image
+from streamlit_drawable_canvas import st_canvas
+
+from core.audit import registrar_evento
+from core.bundle import (
+    STATE_CREATED,
+    append_signature,
+    create_bundle,
+    get_state,
+    load_bundle,
+    save_bundle,
+)
 from core.hashing import sha256_bytes
-from core.bundle import create_bundle, load_bundle, save_bundle, append_signature, get_state, STATE_CREATED
-from core.signatures import load_private_key_pem, load_public_key_pem, sign_data, generate_keypair, export_private_key_pem, export_public_key_pem
+from core.signatures import (
+    export_private_key_pem,
+    export_public_key_pem,
+    generate_keypair,
+    load_private_key_pem,
+    sign_data,
+)
 
 BASE_DIR = pathlib.Path(__file__).resolve().parents[1].parent
 DATA_DIR = BASE_DIR / "data" / "contracts"
 KEYS_DIR = BASE_DIR / "keys" / "signing"
+
+
+def _contracts():
+    """Lista los IDs de contratos existentes."""
+    if not DATA_DIR.exists():
+        return []
+
+    return sorted([p.name for p in DATA_DIR.iterdir() if p.is_dir()])
 
 
 def _ensure_dirs():
@@ -37,7 +62,10 @@ def _ensure_role_keys(role: str):
     priv_path, pub_path = _role_key_paths(role)
 
     if priv_path.exists() and pub_path.exists():
-        return priv_path.read_text(encoding="utf-8"), pub_path.read_text(encoding="utf-8")
+        return (
+            priv_path.read_text(encoding="utf-8"),
+            pub_path.read_text(encoding="utf-8"),
+        )
 
     priv, pub = generate_keypair()
     priv_pem = export_private_key_pem(priv)
@@ -58,57 +86,126 @@ def _ensure_role_keys(role: str):
 
 def render():
     _ensure_dirs()
-    # 🔒 CONTROL DE ACCESO
+
     if st.session_state.role != "EMPLEADO":
         st.error("Acceso restringido")
         st.stop()
-        
-    st.subheader("👤 Vista Empleado / Proveedor")
 
-    contract_id = st.text_input("Contract ID (ej: CT-2026-0001)", value="CT-2026-0001")
-    uploaded_pdf = st.file_uploader("Subir contrato PDF", type=["pdf"])
+    st.subheader("👨‍💼 Vista Empleado")
 
-    if uploaded_pdf:
-        pdf_bytes = uploaded_pdf.getvalue()
-        pdf_hash = sha256_bytes(pdf_bytes)
-        st.info(f"SHA-256 del PDF: {pdf_hash}")
+    # ==============================
+    # CREAR CONTRATO
+    # ==============================
+    st.markdown("### 📄 Crear nuevo contrato")
 
-        if st.button("Guardar contrato y crear bundle"):
-            cdir = _contract_dir(contract_id)
-            cdir.mkdir(parents=True, exist_ok=True)
+    uploaded_file = st.file_uploader("Subir contrato PDF", type=["pdf"])
+    new_contract_id = st.text_input("ID del contrato")
 
-            _pdf_path(contract_id).write_bytes(pdf_bytes)
+    if uploaded_file and new_contract_id:
+        pdf_bytes = uploaded_file.getvalue()
 
-            bundle = create_bundle(contract_id, pdf_hash)
-            save_bundle(_bundle_path(contract_id), bundle)
-            st.success("Contrato guardado y bundle creado ✅")
+        contract_dir = _contract_dir(new_contract_id)
+        contract_dir.mkdir(parents=True, exist_ok=True)
 
-    # Firmar si ya existe
-    if _pdf_path(contract_id).exists() and _bundle_path(contract_id).exists():
-        bundle = load_bundle(_bundle_path(contract_id))
-        st.write("Estado actual:", get_state(bundle))
+        pdf_path = _pdf_path(new_contract_id)
+        pdf_path.write_bytes(pdf_bytes)
 
-        if get_state(bundle) != STATE_CREATED:
-            st.warning("Este contrato ya avanzó de estado.")
-            st.json(bundle)
-            return
+        pdf_sha256 = sha256_bytes(pdf_bytes)
+        bundle = create_bundle(new_contract_id, pdf_sha256)
+        save_bundle(_bundle_path(new_contract_id), bundle)
 
-        if st.button("Firmar como EMPLEADO"):
-            priv_pem, pub_pem = _ensure_role_keys("empleado")
-            priv = load_private_key_pem(priv_pem)
+        st.success("Contrato creado ✅")
 
-            signature_b64 = sign_data(priv, bundle["pdf_sha256"].encode("utf-8"))
+    # ==============================
+    # SELECCIONAR CONTRATO
+    # ==============================
+    contracts = _contracts()
+    if not contracts:
+        st.info("No hay contratos disponibles.")
+        return
 
-            bundle = append_signature(
-                bundle,
-                role="EMPLEADO",
-                algo="Ed25519",
-                public_key=pub_pem,
-                signature=signature_b64
+    contract_id = st.selectbox("Seleccionar contrato", contracts)
+
+    pdf_path = _pdf_path(contract_id)
+    bundle_path = _bundle_path(contract_id)
+
+    if not bundle_path.exists():
+        st.error("No se encontró el bundle del contrato.")
+        return
+
+    bundle = load_bundle(bundle_path)
+    st.write("Estado actual:", get_state(bundle))
+
+    # ==============================
+    # VERIFICACIÓN DE IDENTIDAD
+    # ==============================
+    st.markdown("## ✍️ Firme aquí para verificar su identidad")
+
+    canvas_result = st_canvas(
+        fill_color="rgba(255,255,255,0)",
+        stroke_width=3,
+        stroke_color="#000000",
+        background_color="#ffffff",
+        height=200,
+        width=500,
+        drawing_mode="freedraw",
+        key=f"canvas_empleado_{contract_id}",
+    )
+
+    verification_key = f"empleado_verificado_{contract_id}"
+
+    if st.button("Guardar firma visual"):
+        if canvas_result.image_data is not None:
+            img = Image.fromarray(canvas_result.image_data.astype("uint8"))
+            firma_path = _contract_dir(contract_id) / "firma_empleado.png"
+            img.save(firma_path)
+
+            st.session_state[verification_key] = True
+
+            registrar_evento(
+                f"Empleado verificó identidad en contrato {contract_id}"
             )
-            save_bundle(_bundle_path(contract_id), bundle)
 
-            st.success("Firma del empleado agregada ✅")
-            st.json(bundle)
-    else:
-        st.caption("Subí un PDF y creá el bundle para poder firmar.")
+            st.success("Identidad verificada ✅")
+        else:
+            st.warning("Debe dibujar una firma.")
+
+    # ==============================
+    # FIRMA DIGITAL
+    # ==============================
+    if not st.session_state.get(verification_key, False):
+        st.info("Primero debe verificar su identidad con la firma visual.")
+        return
+
+    if get_state(bundle) != STATE_CREATED:
+        st.caption("El contrato ya fue firmado o avanzó de estado.")
+        st.json(bundle)
+        return
+
+    st.markdown("## 🔐 Firma digital del contrato")
+
+    if st.button("Firmar digitalmente como EMPLEADO"):
+        priv_pem, pub_pem = _ensure_role_keys("empleado")
+        priv = load_private_key_pem(priv_pem)
+
+        sig_b64 = sign_data(
+            priv,
+            bundle["pdf_sha256"].encode("utf-8"),
+        )
+
+        bundle = append_signature(
+            bundle,
+            role="EMPLEADO",
+            algo="Ed25519",
+            public_key=pub_pem,
+            signature=sig_b64,
+        )
+
+        save_bundle(bundle_path, bundle)
+
+        registrar_evento(
+            f"Empleado firmó digitalmente contrato {contract_id}"
+        )
+
+        st.success("Contrato firmado digitalmente ✅")
+        st.json(bundle)
