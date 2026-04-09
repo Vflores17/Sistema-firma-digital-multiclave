@@ -1,27 +1,30 @@
 # src/views/auditor.py
+
+import json
 import pathlib
+
 import streamlit as st
 
-from core.hashing import verify_file_hash
-from core.bundle import load_bundle, save_bundle, append_signature, get_state, verify_signature_chain, STATE_SIGNED_COMPANY, STATE_CERTIFIED
-from core.signatures import (
-    load_public_key_pem, verify_signature,
-    load_private_key_pem, generate_keypair, export_private_key_pem, export_public_key_pem, sign_data
+from core.bundle import (
+    get_state,
+    load_bundle,
+    verify_signature_chain,
 )
-from core.key_manager import obtener_o_generar_clave
-from core.encryption import encrypt_file
+from core.hashing import verify_file_hash
+from core.signatures import load_public_key_pem, verify_signature
 
 BASE_DIR = pathlib.Path(__file__).resolve().parents[1].parent
 DATA_DIR = BASE_DIR / "data" / "contracts"
-KEYS_DIR = BASE_DIR / "keys"
-SIGN_KEYS_DIR = KEYS_DIR / "signing"
-AES_KEY_PATH = KEYS_DIR / "sistema.key"
+AUDIT_LOG = BASE_DIR / "data" / "audit.log"
 
+ESTADO_INFO = {
+    "CREADO":           ("🟡 Pendiente de firma del empleado",               "warning"),
+    "FIRMADO_EMPLEADO": ("🟠 Firmado por empleado — falta firma de empresa", "warning"),
+    "FIRMADO_EMPRESA":  ("🔵 Firmado por empresa — falta certificación",     "info"),
+    "CERTIFICADO":      ("✅ Certificado por notario",                        "success"),
+}
 
-def _ensure_dirs():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    KEYS_DIR.mkdir(parents=True, exist_ok=True)
-    SIGN_KEYS_DIR.mkdir(parents=True, exist_ok=True)
+ALGO_ICONS = {"Ed25519": "🔑", "RSA": "🗝️"}
 
 
 def _contracts():
@@ -36,117 +39,137 @@ def _bundle_path(contract_id: str) -> pathlib.Path:
     return DATA_DIR / contract_id / "bundle.json"
 
 
-def _pdf_enc_path(contract_id: str) -> pathlib.Path:
-    p = _pdf_path(contract_id)
-    return p.with_suffix(p.suffix + ".enc")
-
-
-def _role_key_paths(role: str):
-    role = role.lower()
-    return SIGN_KEYS_DIR / f"{role}_private.pem", SIGN_KEYS_DIR / f"{role}_public.pem"
-
-
-def _ensure_role_keys(role: str):
-    priv_path, pub_path = _role_key_paths(role)
-
-    if priv_path.exists() and pub_path.exists():
-        return priv_path.read_text(encoding="utf-8"), pub_path.read_text(encoding="utf-8")
-
-    priv, pub = generate_keypair()
-    priv_pem = export_private_key_pem(priv)
-    pub_pem = export_public_key_pem(pub)
-
-    priv_path.write_text(priv_pem, encoding="utf-8")
-    pub_path.write_text(pub_pem, encoding="utf-8")
-
-    try:
-        import os
-        os.chmod(priv_path, 0o600)
-        os.chmod(pub_path, 0o644)
-    except Exception:
-        pass
-
-    return priv_pem, pub_pem
+def _mostrar_estado(estado: str):
+    etiqueta, tipo = ESTADO_INFO.get(estado, (f"🔘 {estado}", "info"))
+    getattr(st, tipo)(f"**Estado del contrato:** {etiqueta}")
 
 
 def render():
-    _ensure_dirs()
-    # 🔒 CONTROL DE ACCESO
-    if st.session_state.role != "AUDITOR":
+    if st.session_state.role not in ("AUDITOR", "ADMIN"):
         st.error("Acceso restringido")
         st.stop()
-    st.subheader("🧾 Vista Auditor / Notario")
 
-    contracts = _contracts()
-    if not contracts:
-        st.info("No hay contratos todavía.")
-        return
+    st.subheader("🔎 Vista Auditor")
+    st.caption("Modo solo lectura — puede inspeccionar contratos pero no modificarlos.")
 
-    contract_id = st.selectbox("Seleccionar contrato", contracts)
+    tab_contratos, tab_log = st.tabs(["📄 Contratos", "📋 Log de auditoría"])
 
-    pdf_path = _pdf_path(contract_id)
-    bundle_path = _bundle_path(contract_id)
+    # ══════════════════════════════════════════════════════════
+    # TAB 1 — INSPECCIÓN DE CONTRATOS
+    # ══════════════════════════════════════════════════════════
+    with tab_contratos:
+        contracts = _contracts()
+        if not contracts:
+            st.info("No hay contratos en el sistema.")
+            return
 
-    if not (pdf_path.exists() and bundle_path.exists()):
-        st.error("Falta contrato.pdf o bundle.json")
-        return
+        contract_id = st.selectbox("Seleccionar contrato", contracts)
 
-    bundle = load_bundle(bundle_path)
-    st.write("Estado actual:", get_state(bundle))
+        pdf_path    = _pdf_path(contract_id)
+        bundle_path = _bundle_path(contract_id)
 
-    ok_pdf = verify_file_hash(pdf_path, bundle["pdf_sha256"])
-    ok_chain = verify_signature_chain(bundle)
-    st.write("Integridad PDF:", "✅" if ok_pdf else "❌")
-    st.write("Cadena de firmas:", "✅" if ok_chain else "❌")
+        if not bundle_path.exists():
+            st.error("No se encontró el bundle del contrato.")
+            return
 
-    sigs = bundle.get("signatures", [])
-    emp_sig = next((s for s in sigs if s.get("role") == "EMPLEADO"), None)
-    com_sig = next((s for s in sigs if s.get("role") == "EMPRESA"), None)
+        bundle = load_bundle(bundle_path)
+        estado = get_state(bundle)
 
-    def verify_entry(entry) -> bool:
-        pub = load_public_key_pem(entry["public_key"])
-        return verify_signature(pub, bundle["pdf_sha256"].encode("utf-8"), entry["signature"])
+        _mostrar_estado(estado)
+        st.divider()
 
-    if st.button("Verificar firmas (Empleado + Empresa)"):
-        if not emp_sig or not com_sig:
-            st.error("Faltan firmas previas.")
+        # ── Verificaciones de integridad ───────────────────────
+        st.markdown("### 🔍 Integridad")
+
+        ok_pdf   = verify_file_hash(pdf_path, bundle["pdf_sha256"]) if pdf_path.exists() else False
+        ok_chain = verify_signature_chain(bundle)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.success("PDF íntegro ✅") if ok_pdf else st.error("PDF alterado ❌")
+        with col2:
+            st.success("Cadena de firmas válida ✅") if ok_chain else st.error("Cadena rota ❌")
+
+        st.markdown(f"**SHA-256 del documento:** `{bundle.get('pdf_sha256', 'N/A')}`")
+        st.divider()
+
+        # ── Firmas ────────────────────────────────────────────
+        st.markdown("### ✍️ Firmas registradas")
+
+        sigs = bundle.get("signatures", [])
+        if not sigs:
+            st.info("No hay firmas registradas en este contrato.")
         else:
-            st.write("Empleado:", "✅" if verify_entry(emp_sig) else "❌")
-            st.write("Empresa:", "✅" if verify_entry(com_sig) else "❌")
+            data_to_verify = bundle.get("pdf_sha256", "").encode("utf-8")
 
-    if get_state(bundle) == STATE_SIGNED_COMPANY:
-        if st.button("Certificar como AUDITOR"):
-            priv_pem, pub_pem = _ensure_role_keys("auditor")
-            priv = load_private_key_pem(priv_pem)
-            sig_b64 = sign_data(priv, bundle["pdf_sha256"].encode("utf-8"))
+            for i, sig in enumerate(sigs):
+                role      = sig.get("role", "N/A")
+                algo      = sig.get("algorithm", "N/A")
+                timestamp = sig.get("timestamp", "N/A")
+                icono     = ALGO_ICONS.get(algo, "🔐")
 
-            bundle = append_signature(
-                bundle,
-                role="AUDITOR",
-                algo="Ed25519",
-                public_key=pub_pem,
-                signature=sig_b64
-            )
-            save_bundle(bundle_path, bundle)
-            st.success("Contrato CERTIFICADO ✅")
+                with st.expander(f"{icono} Firma #{i+1} — {role} ({algo}) — {timestamp}"):
+                    try:
+                        pub = load_public_key_pem(sig["public_key"])
+                        ok  = verify_signature(pub, data_to_verify, sig["signature"])
+                        if ok:
+                            st.success("Firma criptográficamente válida ✅")
+                        else:
+                            st.error("Firma inválida ❌")
+                    except Exception as e:
+                        st.error(f"Error al verificar: {e}")
+
+                    st.markdown(f"**Algoritmo:** {algo}")
+                    st.markdown(f"**Timestamp:** {timestamp}")
+
+                    prev_hash = sig.get("prev_signature_hash")
+                    st.markdown(
+                        f"**Hash firma anterior:** `{prev_hash}`"
+                        if prev_hash else "**Primera firma** (sin encadenamiento previo)"
+                    )
+
+        st.divider()
+
+        # ── Bundle completo (solo auditor puede verlo) ─────────
+        st.markdown("### 📦 Bundle completo")
+        st.caption("Información interna del contrato — acceso exclusivo del auditor.")
+        with st.expander("Ver bundle.json"):
             st.json(bundle)
-    else:
-        st.caption("Para certificar, el contrato debe estar en estado FIRMADO_EMPRESA.")
 
-    st.divider()
-    st.markdown("### 🔐 Cifrado del contrato (AES-256-GCM)")
+    # ══════════════════════════════════════════════════════════
+    # TAB 2 — LOG DE AUDITORÍA
+    # ══════════════════════════════════════════════════════════
+    with tab_log:
+        st.markdown("### 📋 Registro de eventos del sistema")
 
-    if get_state(bundle) == STATE_CERTIFIED:
-        aes_key = obtener_o_generar_clave(str(AES_KEY_PATH))
+        if not AUDIT_LOG.exists():
+            st.info("No hay eventos registrados todavía.")
+            return
 
-        if st.button("Cifrar contrato.pdf → contrato.pdf.enc"):
-            out = encrypt_file(
-                pdf_path,
-                aes_key,
-                output_path=_pdf_enc_path(contract_id),
-                contract_id=contract_id,
-                pdf_sha256_hex=bundle["pdf_sha256"]
-            )
-            st.success(f"Generado: {out.name} ✅")
-    else:
-        st.caption("El cifrado final se habilita cuando el contrato está CERTIFICADO.")
+        lineas = AUDIT_LOG.read_text(encoding="utf-8").strip().splitlines()
+
+        if not lineas:
+            st.info("El log está vacío.")
+            return
+
+        # Mostrar en orden inverso (más reciente primero)
+        st.caption(f"{len(lineas)} eventos registrados")
+
+        filtro = st.text_input("🔍 Filtrar eventos", placeholder="usuario, contrato, acción...")
+
+        lineas_filtradas = [
+            l for l in reversed(lineas)
+            if filtro.lower() in l.lower()
+        ] if filtro else list(reversed(lineas))
+
+        for linea in lineas_filtradas:
+            st.text(linea)
+
+        st.divider()
+        st.download_button(
+            label="⬇️ Descargar log completo",
+            data=AUDIT_LOG.read_bytes(),
+            file_name="audit.log",
+            mime="text/plain",
+            use_container_width=True,
+        )
