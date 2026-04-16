@@ -304,12 +304,12 @@ def render():
         rsa_pub_pem       = export_rsa_public_pem(rsa_pub)
 
         encrypt_certified_package(
-            pdf_path=_pdf_sellado_path(contract_id),
-            bundle_dict=bundle,
-            public_key_pem=rsa_pub_pem,
-            output_path=_certified_pkg_path(contract_id),
-            contract_id=contract_id,
-            notario=username,
+        pdf_path=_pdf_path(contract_id),
+        bundle_dict=bundle,
+        public_key_pem=rsa_pub_pem,
+        output_path=_certified_pkg_path(contract_id),
+        contract_id=contract_id,
+        notario=username,
         )
 
         # Guardar clave privada RSA en session para descarga inmediata

@@ -45,7 +45,7 @@ def _mostrar_estado(estado: str):
 
 
 def render():
-    if st.session_state.role not in ("AUDITOR", "ADMIN"):
+    if st.session_state.role != "AUDITOR":
         st.error("Acceso restringido")
         st.stop()
 
@@ -110,8 +110,14 @@ def render():
 
                 with st.expander(f"{icono} Firma #{i+1} — {role} ({algo}) — {timestamp}"):
                     try:
-                        pub = load_public_key_pem(sig["public_key"])
-                        ok  = verify_signature(pub, data_to_verify, sig["signature"])
+                        if algo == "RSA":
+                            from core.rsa_signatures import verify_rsa, load_public_key_pem as load_rsa_pub
+                            pub = load_rsa_pub(sig["public_key"])
+                            ok  = verify_rsa(pub, data_to_verify, sig["signature"])
+                        else:  # Ed25519
+                            pub = load_public_key_pem(sig["public_key"])
+                            ok  = verify_signature(pub, data_to_verify, sig["signature"])
+
                         if ok:
                             st.success("Firma criptográficamente válida ✅")
                         else:
