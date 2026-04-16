@@ -1,91 +1,93 @@
-# Sistema de Firma Digital Multillave
-
+Sistema de Firma Digital Multiclave
 Plataforma criptográfica para la firma digital secuencial de contratos laborales y comerciales remotos mediante múltiples algoritmos de clave pública (ECC, RSA y EdDSA), con verificación de integridad basada en SHA-256.
 
----
+Descripción
+Este sistema permite la validación y certificación de documentos digitales mediante un esquema de firma multiclave. Cada firmante utiliza un algoritmo distinto y debe validar la integridad del documento antes de avanzar al siguiente nivel, garantizando así las propiedades fundamentales de seguridad de la información:
 
-## 📌 Descripción del Proyecto
+Integridad — el documento no ha sido alterado
+Autenticidad — cada firma proviene de quien dice ser
+No repudio — ningún firmante puede negar su participación
+Trazabilidad — se registra cada etapa del proceso
 
-Este sistema permite la validación y certificación de documentos digitales mediante un esquema de firma multillave, garantizando las propiedades fundamentales de seguridad de la información:
+El flujo de firma es secuencial entre tres roles:
 
-- Integridad
-- Autenticidad
-- No repudio
-- Trazabilidad del proceso de firma
+Empleado / Proveedor → firma con ECC
+Empresa → firma con RSA
+Auditor / Notario → firma con EdDSA
 
-El flujo de firma se realiza de manera secuencial entre distintos roles:
 
-1. Empleado / Proveedor (ECC)
-2. Empresa (RSA)
-3. Auditor / Notario (EdDSA)
+Objetivo
+Desarrollar un sistema de firma digital multiclave que permita la gestión segura de contratos remotos mediante la aplicación de algoritmos criptográficos de clave pública y funciones hash.
 
-Cada etapa valida la integridad del documento antes de permitir el avance al siguiente nivel.
+Flujo del Proceso de Firma
+Carga del PDF
+     ↓
+Generación del hash SHA-256
+     ↓
+Firma del empleado/proveedor (ECC)
+     ↓
+Verificación de integridad
+     ↓
+Firma de la empresa (RSA)
+     ↓
+Verificación de integridad
+     ↓
+Firma del auditor/notario (EdDSA)
+     ↓
+Validación final del contrato
 
----
+Tecnologías Utilizadas
+TecnologíaUsoPythonLenguaje principalStreamlitInterfaz webcryptographyAlgoritmos RSA y ECCPyNaClAlgoritmo EdDSA (Ed25519)pypdf / reportlabManejo y generación de PDFsPillow / numpy / scikit-imageProcesamiento de imágenesface-recognitionVerificación biométrica facialqrcodeGeneración de códigos QR para validaciónSQLiteAlmacenamiento de metadatos y registros
 
-## 🎯 Objetivo
+Estructura del Proyecto
+Sistema-firma-digital-multiclave/
+├── src/                  # Código fuente principal
+├── keys/                 # Claves generadas automáticamente (no se suben al repo)
+├── setup.py              # Verificación e instalación de dependencias
+├── .gitignore
+└── README.md
 
-Desarrollar un sistema de firma digital multillave que permita la gestión segura de contratos remotos mediante la aplicación de algoritmos criptográficos de clave pública y funciones hash.
+La carpeta keys/ y la base de datos se generan automáticamente al ejecutar el sistema por primera vez. No se incluyen en el repositorio.
 
----
 
-## 🏗️ Arquitectura General
+Instalación y Uso
+Requisitos previos
 
-El sistema está compuesto por los siguientes módulos principales:
+Python 3.10 o superior
+pip
 
-- Generación y verificación de hash (SHA-256)
-- Firma digital con ECC
-- Firma digital con RSA
-- Firma digital con EdDSA
-- Gestión de metadatos en formato JSON
-- Flujo de estados del contrato
-- Interfaz web de usuario
+Pasos
 
----
+Clonar el repositorio:
 
-## 🔐 Flujo del Proceso de Firma
+bash   git clone https://github.com/Vflores17/Sistema-firma-digital-multiclave.git
+   cd Sistema-firma-digital-multiclave
 
-1. Carga del documento PDF
-2. Generación del hash SHA-256
-3. Firma del empleado/proveedor (ECC)
-4. Verificación de integridad
-5. Firma de la empresa (RSA)
-6. Verificación de integridad
-7. Firma del auditor/notario (EdDSA)
-8. Validación final del contrato
+Instalar las dependencias:
 
----
+bash   python setup.py
 
-## 🧪 Tecnologías Utilizadas
+Ejecutar la aplicación:
 
-- Python
-- Librerías criptográficas (cryptography / PyNaCl)
-- JSON para metadatos
-- Interfaz web (por definir)
-- Sistemas Windows y Linux
+bash   streamlit run src/main.py
 
----
+Abrir el navegador en http://localhost:8501
 
-## 📂 Estructura del Proyecto
 
-- src/ → Código fuente principal
-- docs/ → Documentación técnica
-- tests/ → Pruebas del sistema
-
-- 
----
-
-## ⚠️ Alcance del Proyecto
-
+Alcance del Proyecto
 Este sistema tiene fines académicos y demostrativos. No incluye:
 
-- Integración con PKI oficial
-- Certificados digitales de autoridades certificadoras
-- Autenticación biométrica
-- Dispositivos criptográficos físicos (HSM)
+Integración con una PKI (Infraestructura de Clave Pública) oficial
+Certificados digitales emitidos por autoridades certificadoras reconocidas
+Dispositivos criptográficos físicos (HSM)
 
----
 
+Equipo de Desarrollo
+Proyecto académico — Curso de Criptografía
+NombreGitHubVflores17@Vflores17Heillyn Madriz Madrigal—@heillynmadriz
+
+📄 Licencia
+Este proyecto fue desarrollado con fines académicos. No se otorga licencia de uso comercial.
 ## 👥 Equipo de Desarrollo
 
 Proyecto académico — Curso de Criptografía
