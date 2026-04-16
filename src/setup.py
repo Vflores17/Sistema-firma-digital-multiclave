@@ -151,7 +151,7 @@ def validar_e_instalar():
 
 def levantar_streamlit():
     import pathlib
-    app_path = pathlib.Path(__file__).parent / "src" / "app.py"
+    app_path = pathlib.Path(__file__).parent / "app.py"
 
     if not app_path.exists():
         print(f"{RED}No se encontró src/app.py en {app_path}{RESET}")
